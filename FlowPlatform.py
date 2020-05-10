@@ -1928,7 +1928,12 @@ def reset():
         return jsonify({"message" : "info reseted"}), headers
     else:
         return jsonify ({"message":"plz use post request"}), headers
-        
+
+
+
+@app.route("/test41")
+def test41():
+    return "Hello World41!"      
 # engine.dispose()
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
