@@ -8,18 +8,24 @@ from linebot.models import *
 from google.cloud import storage
 from urllib.parse import urlencode
 from urllib.request import urlopen
+import pymysql
 #
 app = Flask(__name__)
 app.config['SECRET_KEY'] = '12345'
-
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = "local_gmi.json"
 # DB information
-db_user = os.environ.get('CLOUD_SQL_USERNAME')
-db_password = os.environ.get('CLOUD_SQL_PASSWORD')
-db_name = os.environ.get('CLOUD_SQL_DATABASE_NAME')
-db_connection_name = os.environ.get('CLOUD_SQL_CONNECTION_NAME')
+# db_user = os.environ.get('CLOUD_SQL_USERNAME')
+# db_password = os.environ.get('CLOUD_SQL_PASSWORD')
+# db_name = os.environ.get('CLOUD_SQL_DATABASE_NAME')
+# db_connection_name = os.environ.get('CLOUD_SQL_CONNECTION_NAME')
 
-engine_url = 'mysql+pymysql://{}:{}@/{}?unix_socket=/cloudsql/{}'.format(db_user, db_password, db_name, db_connection_name)
-engine = sqlalchemy.create_engine(engine_url, pool_size=3)
+# engine_url = 'mysql+pymysql://{}:{}@/{}?unix_socket=/cloudsql/{}'.format(db_user, db_password, db_name, db_connection_name)
+# engine = sqlalchemy.create_engine(engine_url, pool_size=3)
+connection = pymysql.connect(host='127.0.0.1',
+                             user='root',
+                             password='fatsheepgod',
+                             db='test')
+
 
 # -- function definition --
 def page_list(data, page, limit):
@@ -40,10 +46,12 @@ def number():
     '''
     create a number that is no unique in the database
     '''
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         cnx.execute("INSERT INTO dummy () VALUES ();")
-        cursor = cnx.execute("SELECT num FROM dummy ORDER BY num DESC LIMIT 1;")
-        num = str(cursor.fetchall()[0][0])
+        # cursor = cnx.execute("SELECT num FROM dummy ORDER BY num DESC LIMIT 1;")
+        # num = str(cursor.fetchall()[0][0])
+        cnx.execute("SELECT num FROM dummy ORDER BY num DESC LIMIT 1;")
+        num = str(cnx.fetchall()[0][0])
     return num
 
 def token_required(func):
@@ -119,12 +127,12 @@ headers = {
 # create new label
 #-----------------------------------------#
 @app.route("/label_create", methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def label_create(custom_id): 
     if request.method == 'POST':
         data = request.json
         
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             num = number()
             # 修改標籤名稱
             if data['create_label_period'] == '0':
@@ -136,7 +144,7 @@ def label_create(custom_id):
                 (\'label_{}\', \'{}\', {}, \'{}\', \'{}\');'.format(num, name, data['create_label_period'], data['create_label_radio'], custom_id))
         
         # 計算標籤人數
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             query = cnx.execute("select a.label_id, a.label_name, a.label_period, a.label_radio, b.count from tag_list a left join (select label_id, count(*) as count from label_record where custom_id = \'{}\' group by label_id) as b on b.label_id = a.label_id where a.custom_id = \'{}\';".format(custom_id, custom_id)).fetchall()
         
         # 轉換成可代入jsonify的字典
@@ -177,12 +185,12 @@ def label_create(custom_id):
 # Label Delete
 #-----------------------------------------#
 @app.route("/label_delete", methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def label_delete(custom_id):
     if request.method == 'POST':
         data = request.json
         label_id = data['delete_label_id']
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute("SET SQL_SAFE_UPDATES = 0;")
             # tag_redirect
             cursor = cnx.execute("select action_id, label_list from tag_redirect where label_list like '[%%{}%%]' and custom_id = \'{}\';".format(data['delete_label_id'], custom_id))
@@ -221,7 +229,7 @@ def label_delete(custom_id):
             cnx.execute("DELETE FROM tag_list WHERE label_id = \'{}\' and custom_id = \'{}\'".format(label_id, custom_id))
 
         # 計算標籤人數
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             query = cnx.execute("select a.label_id, a.label_name, a.label_period, a.label_radio, b.count from tag_list a left join (select label_id, count(*) as count from label_record where custom_id = \'{}\' group by label_id) as b on b.label_id = a.label_id where a.custom_id = \'{}\';".format(custom_id, custom_id)).fetchall()
         
         # 轉換成可代入jsonify的字典
@@ -262,7 +270,7 @@ def label_delete(custom_id):
 # Label Display
 #-----------------------------------------#
 @app.route("/label_display", methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def label_display(custom_id):
     if request.method == 'POST':
         data = request.json
@@ -278,12 +286,12 @@ def label_display(custom_id):
             else:
                 label_name = label_name + '({}天)'.format(label_period)
             
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 cnx.execute("SET SQL_SAFE_UPDATES = 0;")
                 cnx.execute("UPDATE tag_list SET label_name = \'{}\', label_period = \'{}\', label_radio = \'{}\' WHERE label_id = \'{}\' and custom_id = \'{}\';".format(label_name, label_period, label_radio, label_id, custom_id))
             
         # 計算標籤人數
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             query = cnx.execute("select a.label_id, a.label_name, a.label_period, a.label_radio, b.count from tag_list a left join (select label_id, count(*) as count from label_record where custom_id = \'{}\' group by label_id) as b on b.label_id = a.label_id where a.custom_id = \'{}\';".format(custom_id, custom_id)).fetchall()
         
         # 轉換成可代入jsonify的字典
@@ -353,21 +361,21 @@ def label_display(custom_id):
 # iEAT old version url_redirect
 @app.route('/url_redirect/url_id=<url_id>', methods=['GET', 'POST', 'OPTIONS'])
 def redirecting(url_id):
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         url = cnx.execute("SELECT url from url_redirect where url_id = \'{}\' and custom_id = 'cust_ieat';".format(url_id)).fetchall()[0][0]
     return redirect(url)
 # new version for flow platform api - url_redirect
 @app.route('/reloading/url_id=<url_id>&custom_id=<custom_id>', methods=['GET', 'POST', 'OPTIONS'])
 def reloading(custom_id, url_id):
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         url = cnx.execute("SELECT url from url_redirect where url_id = \'{}\' and custom_id = \'{}\';".format(url_id, custom_id)).fetchall()[0][0]
     return redirect(url)
 
 @app.route('/create_msg', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def create_msg(custom_id):
     if request.method == 'POST':
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             Client_ID, url_redirect, url_api = cnx.execute("select login_id, url_redirect, url_api from bot_info where custom_id = \'{}\';".format(custom_id)).fetchall()[0]
     
         data = request.json
@@ -388,7 +396,7 @@ def create_msg(custom_id):
                         action_id = 'action_{}'.format(number())
                         url_id = 'url_{}'.format(number())
                         # 將此Action應執行的動作存入Action Table
-                        with engine.connect() as cnx:
+                        with connection.cursor() as cnx:
                             cnx.execute("INSERT INTO tag_redirect (action_id, label_list, url, msg_id, custom_id) VALUES (\"{}\", \'{}\', \"{}\", \"{}\", \"{}\");".format(action_id, label_list, url, msg_id, custom_id))
                             new_url = "https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id={}&redirect_uri={}&state={}&scope=openid%%20profile&nonce=09876xyz".format(Client_ID, url_redirect, action_id)
                             cnx.execute("INSERT INTO url_redirect (url_id, url, msg_id, custom_id) VALUES (\'{}\', \'{}\', \'{}\', \'{}\');".format(url_id, new_url, msg_id, custom_id))
@@ -409,7 +417,7 @@ def create_msg(custom_id):
                     if action['type'] == 'uri':
                         action_id = 'action_{}'.format(number())
                         # 將此Action應執行的動作存入Action Table
-                        with engine.connect() as cnx:
+                        with connection.cursor() as cnx:
                             cnx.execute("INSERT INTO tag_redirect (action_id, label_list, url, msg_id, custom_id) VALUES (\"{}\", \'{}\', \"{}\", \'{}\', \'{}\');".format(action_id, label_list, action['linkUri'], msg_id, custom_id))
                         action['linkUri'] = "https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id={}&redirect_uri={}&state={}&scope=openid%%20profile&nonce=09876xyz".format(Client_ID, url_redirect, action_id)
                         action_list.append(action_id)
@@ -422,13 +430,13 @@ def create_msg(custom_id):
                         label_list = str(button['action']['label_id']).replace("\'",'\"')
                         if button['action']['type'] == 'uri':
                             action_id = 'action_{}'.format(number())
-                            with engine.connect() as cnx:
+                            with connection.cursor() as cnx:
                                 cnx.execute("INSERT INTO tag_redirect (action_id, label_list, url, msg_id, custom_id) VALUES (\"{}\", \'{}\', \"{}\", \'{}\', \'{}\');".format(action_id, label_list, button['action']['uri'], msg_id, custom_id))
                             button['action']['uri'] = "https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id={}&redirect_uri={}&state={}&scope=openid%%20profile&nonce=09876xyz".format(Client_ID, url_redirect, action_id)
                             action_list.append(action_id)
                         elif button['action']['type'] == 'postback':
                             postback_id = 'postback_{}'.format(number())
-                            with engine.connect() as cnx:
+                            with connection.cursor() as cnx:
                                 cnx.execute("INSERT INTO tag_postback (postback_id, label_list, msg_id, custom_id) VALUES (\"{}\", \'{}\', \'{}\', \'{}\');".format(postback_id, label_list, msg_id, custom_id))
                             postback_list.append(postback_id)
                             button['action']['data'] = postback_id
@@ -443,13 +451,13 @@ def create_msg(custom_id):
                             label_list = str(button['action']['label_id']).replace("\'",'\"')
                             if button['action']['type'] == 'uri':
                                 action_id = 'action_{}'.format(number())
-                                with engine.connect() as cnx:
+                                with connection.cursor() as cnx:
                                     cnx.execute("INSERT INTO tag_redirect (action_id, label_list, url, msg_id, custom_id) VALUES (\"{}\", \'{}\', \"{}\", \'{}\', \'{}\');".format(action_id, label_list, button['action']['uri'], msg_id, custom_id))
                                 button['action']['uri'] = "https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id={}&redirect_uri={}&state={}&scope=openid%%20profile&nonce=09876xyz".format(Client_ID, url_redirect, action_id)
                                 action_list.append(action_id)
                             elif button['action']['type'] == 'postback':
                                 postback_id = 'postback_{}'.format(number())
-                                with engine.connect() as cnx:
+                                with connection.cursor() as cnx:
                                     cnx.execute("INSERT INTO tag_postback (postback_id, label_list, msg_id, custom_id) VALUES (\"{}\", \'{}\', \'{}\', \'{}\');".format(postback_id, label_list, msg_id, custom_id))
                                 postback_list.append(postback_id)
                                 button['action']['data'] = postback_id
@@ -462,7 +470,7 @@ def create_msg(custom_id):
         action_list = str(action_list).replace("\'",'\"')
         if 'True' in json_msg:
             json_msg = json_msg.replace('True', 'true')
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute('INSERT INTO msg_list (msg_id, msg_name, content, action_list, postback_list, custom_id) VALUES (\'{}\', \'{}\', \'{}\', \'{}\', \'{}\', \'{}\');'.format(msg_id, data['name'], json_msg, action_list, postback_list, custom_id))
         return 'status code <200>', headers
     else:
@@ -479,7 +487,7 @@ def create_backend_msg():
         json_msg = str(data['message']).replace("\'",'\"')
         if 'True' in json_msg:
             json_msg = json_msg.replace('True', 'true')
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute('INSERT INTO backend_message (msg_id, msg_name, content, custom_id) VALUES (\'{}\', \'{}\', \'{}\', \'{}\');'.format(msg_id, data['name'], json_msg, data['custom_id']))
         return jsonify({"message" : "upload completed!"}), headers
     else:
@@ -488,11 +496,11 @@ def create_backend_msg():
 # Query Messsage List
 #-----------------------------------------#
 @app.route('/query_msg', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def query_msg(custom_id):
     if request.method == 'POST':
         data = request.json
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             # 訊息內容
             cursor = cnx.execute("SELECT msg_id, msg_name, event_time, content FROM msg_list where custom_id = \'{}\' order by event_time desc;".format(custom_id))
             query = cursor.fetchall()
@@ -509,11 +517,11 @@ def query_msg(custom_id):
 # Query Messsage History
 #-----------------------------------------#
 @app.route('/query_msg_history', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def query_msg_history(custom_id):
     if request.method == 'POST':
         data = request.json
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             # push history
             cursor_history = cnx.execute("SELECT serial_no, msg_name, event_time, object, D_union, req_id FROM push_history where custom_id = \'{}\' order by event_time desc;".format(custom_id))
             query_history = cursor_history.fetchall()
@@ -531,10 +539,10 @@ def query_msg_history(custom_id):
 # advanced push History
 #-----------------------------------------#
 @app.route('/advanced_history', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def advanced_history(custom_id):
     if request.method == 'POST':
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             Channel_Access_Token = cnx.execute("select msg_token from bot_info where custom_id = \'{}\';".format(custom_id)).fetchall()[0][0]
         
         get_headers = {
@@ -562,7 +570,7 @@ def advanced_history(custom_id):
         else:
             uniqueImpression = req_json['overview']['uniqueImpression']
 
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             num_aud = cnx.execute("select num_aud from push_history where req_id = \'{}\' and custom_id = \'{}\';".format(req_id, custom_id)).fetchall()[0][0]
 
         num_sent = delivered/num_aud
@@ -601,12 +609,12 @@ def advanced_history(custom_id):
 # Push Message(NEW)
 #-----------------------------------------#
 @app.route('/push_msg', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def push_msg(custom_id):
     if request.method == 'POST':
         data = request.json        
         # Total User_ID
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             userList = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(custom_id)).fetchall()} 
 
         # gender
@@ -615,13 +623,13 @@ def push_msg(custom_id):
 
         list_InGender = list()
         for gender in in_gender:
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 tmp = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE gender = \'{}\' and user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(gender, custom_id)).fetchall()}
                 list_InGender.append(tmp)
         
         list_ExGender = list()
         for gender in ex_gender:
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 tmp = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE gender != \'{}\' and user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(gender, custom_id)).fetchall()}
                 list_ExGender.append(tmp)
 
@@ -631,13 +639,13 @@ def push_msg(custom_id):
 
         list_InLabel = list()
         for label in in_label:
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 tmp = {x[0] for x in cnx.execute("SELECT user_id FROM label_record WHERE label_id = \'{}\' and custom_id = \'{}\';".format(label, custom_id)).fetchall()}
                 list_InLabel.append(tmp)
         
         list_ExLabel = list()
         for label in ex_label:
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 tmp = userList - {x[0] for x in cnx.execute("SELECT user_id FROM label_record WHERE label_id = \'{}\' and custom_id = \'{}\';".format(label, custom_id)).fetchall()}
                 list_ExLabel.append(tmp)
 
@@ -659,7 +667,7 @@ def push_msg(custom_id):
         userid_all = list(userid_all)
         if userid_all != []:
             # push message to target user_id
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 query = cnx.execute('select content, msg_name from msg_list where msg_id = \'{}\' and custom_id = \'{}\';'.format(data['msg_id'], custom_id)).fetchall()[0]
                 Channel_Access_Token = cnx.execute("select msg_token from bot_info where custom_id = \'{}\';".format(custom_id)).fetchall()[0][0]
     
@@ -686,12 +694,12 @@ def push_msg(custom_id):
 # Push Message(calculate people number)
 #-----------------------------------------#
 @app.route('/people_number', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def people_number(custom_id):
     if request.method == 'POST':
         data = request.json        
         # Total User_ID
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             userList = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(custom_id)).fetchall()} 
 
         # gender
@@ -700,13 +708,13 @@ def people_number(custom_id):
 
         list_InGender = list()
         for gender in in_gender:
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 tmp = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE gender = \'{}\' and user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(gender, custom_id)).fetchall()}
                 list_InGender.append(tmp)
         
         list_ExGender = list()
         for gender in ex_gender:
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 tmp = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE gender != \'{}\' and user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(gender, custom_id)).fetchall()}
                 list_ExGender.append(tmp)
 
@@ -716,13 +724,13 @@ def people_number(custom_id):
 
         list_InLabel = list()
         for label in in_label:
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 tmp = {x[0] for x in cnx.execute("SELECT user_id FROM label_record WHERE label_id = \'{}\' and custom_id = \'{}\';".format(label, custom_id)).fetchall()}
                 list_InLabel.append(tmp)
         
         list_ExLabel = list()
         for label in ex_label:
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 tmp = userList - {x[0] for x in cnx.execute("SELECT user_id FROM label_record WHERE label_id = \'{}\' and custom_id = \'{}\';".format(label, custom_id)).fetchall()}
                 list_ExLabel.append(tmp)
 
@@ -748,10 +756,10 @@ def people_number(custom_id):
 # Push Message tag_list
 #-----------------------------------------#
 @app.route('/push_msg_tag', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def push_msg_tag(custom_id):
     if request.method == 'POST':
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cursor = cnx.execute("select label_id, label_name from tag_list where custom_id = \'{}\';".format(custom_id))
             query = cursor.fetchall()
 
@@ -766,11 +774,11 @@ def push_msg_tag(custom_id):
 # Delete Message
 #-----------------------------------------#
 @app.route('/delete_msg', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def delete_msg(custom_id):    
     if request.method == 'POST':
         data = request.json
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute('set sql_safe_updates = 0;')
             cnx.execute('delete from msg_list where msg_id = \'{}\' and custom_id = \'{}\';'.format(data['msg_id'], custom_id))
             cnx.execute('delete from scheduled_msg where msg_id = \'{}\' and custom_id = \'{}\';'.format(data['msg_id'], custom_id))
@@ -790,11 +798,11 @@ def delete_msg(custom_id):
 # Setting Auto Reply
 #-----------------------------------------#
 @app.route('/auto_reply', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def auto_reply(custom_id):
     if request.method == 'POST':
         data = request.json
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cursor = cnx.execute("select keyword from auto_reply where custom_id = \'{}\';".format(custom_id))
             query = cursor.fetchall()
             list_keyword = [x[0] for x in query]
@@ -810,11 +818,11 @@ def auto_reply(custom_id):
 # Query Auto Reply
 #-----------------------------------------#
 @app.route('/query_auto', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def query_auto(custom_id): 
     if request.method == 'POST':
         data = request.json
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             dict_label = dict(cnx.execute("SELECT label_id, label_name from tag_list where custom_id = \'{}\';".format(custom_id)).fetchall())
             cursor = cnx.execute("select a.reply_id, a.keyword, a.event_time, b.msg_name, b.content, a.label_list from auto_reply a, msg_list b where a.msg_id = b.msg_id and a.custom_id = \'{}\' and b.custom_id = \'{}\' order by event_time desc;".format(custom_id, custom_id))
             query = cursor.fetchall()
@@ -842,11 +850,11 @@ def query_auto(custom_id):
 # Delete Auto Reply
 #-----------------------------------------#
 @app.route('/delete_auto', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def delete_auto(custom_id):
     if request.method == 'POST':
         data = request.json
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute('set sql_safe_updates = 0;')
             cnx.execute('delete from auto_reply where reply_id = \'{}\' and custom_id = \'{}\';'.format(data['reply_id'], custom_id))
         return 'status code <200>', headers
@@ -860,10 +868,10 @@ def delete_auto(custom_id):
 # Friend Adding Label create
 #-----------------------------------------#
 @app.route('/line_add_create', methods = ['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def line_add_create(custom_id):
     if request.method == 'POST':
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             url_api = cnx.execute("select url_api from bot_info where custom_id = \'{}\';".format(custom_id)).fetchall()[0][0]
             
         data = request.json
@@ -884,7 +892,7 @@ def line_add_create(custom_id):
         make_blob_public("ieat-qrcode", file_name)
         url_qrcode = "https://storage.googleapis.com/ieat-qrcode/{}".format(file_name)
         #
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute("INSERT INTO line_add (url_id, logo, announce, position, activity, qrcode, url, custom_id) VALUES (\'{}\', \'{}\', \'{}\', \'{}\', \'{}\', \'{}\', \'{}\', \'{}\');".format(url_id, logo, data['announce'], postion, activity, url_qrcode, url_friend, custom_id))
             query = cnx.execute("SELECT url_id, logo, announce, position, activity, qrcode, url, click, event_time from line_add where custom_id = \'{}\';".format(custom_id)).fetchall()
         
@@ -901,7 +909,7 @@ def line_add_create(custom_id):
 #-----------------------------------------#
 @app.route('/line_add/logo=<var_A>&announce=<var_B>&position=<var_C>&activity=<var_D>&url_id=<var_E>', methods = ['GET', 'POST', 'OPTIONS'])
 def line_add(var_A, var_B, var_C, var_D, var_E):
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         click = int(cnx.execute("SELECT click from line_add where url_id = \'{}\' and custom_id = 'cust_ieat';".format(var_E)).fetchall()[0][0])
         cnx.execute("SET sql_safe_updates = 0;")
         cnx.execute("UPDATE line_add SET click = {} WHERE url_id = \'{}\' and custom_id = 'cust_ieat';".format(str(click+1), var_E))
@@ -911,7 +919,7 @@ def line_add(var_A, var_B, var_C, var_D, var_E):
 #-----------------------------------------#
 @app.route('/MakeFriend/logo=<var_A>&announce=<var_B>&position=<var_C>&activity=<var_D>&url_id=<var_E>&custom_id=<custom_id>', methods = ['GET', 'POST', 'OPTIONS'])
 def MakeFriend(var_A, var_B, var_C, var_D, var_E, custom_id):
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         click = int(cnx.execute("SELECT click from line_add where url_id = \'{}\' and custom_id = \'{}\';".format(var_E, custom_id)).fetchall()[0][0])
         cnx.execute("SET sql_safe_updates = 0;")
         cnx.execute("UPDATE line_add SET click = {} WHERE url_id = \'{}\' and custom_id = \'{}\';".format(str(click+1), var_E, custom_id))
@@ -921,11 +929,11 @@ def MakeFriend(var_A, var_B, var_C, var_D, var_E, custom_id):
 # Friend Adding Label delete
 #-----------------------------------------#
 @app.route('/line_add_delete', methods = ['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def line_add_delete(custom_id):
     if request.method == 'POST':
         data = request.json
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute('set sql_safe_updates = 0;')
             cnx.execute('delete from line_add where url_id = \'{}\' and custom_id = \'{}\';'.format(data['url_id'], custom_id))
             query = cnx.execute("SELECT url_id, logo, announce, position, activity, qrcode, url, click, event_time from line_add where custom_id = \'{}\';".format(custom_id)).fetchall()
@@ -943,11 +951,11 @@ def line_add_delete(custom_id):
 # Friend Adding Label display
 #-----------------------------------------#
 @app.route('/line_add_display', methods = ['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def line_add_display(custom_id):
     if request.method == 'POST':
         data = request.json
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             query = cnx.execute("SELECT url_id, logo, announce, position, activity, qrcode, url, click, event_time from line_add where custom_id = \'{}\';".format(custom_id)).fetchall()
         
         result = [{"url_id":x[0], "logo":x[1], "announce":x[2], "position":x[3], "activity":x[4], "qrcode":x[5], "url":x[6], "click":x[7], "evet_time":x[8]} for x in query]
@@ -993,14 +1001,18 @@ def video_link():
     if request.method == 'POST':
         data = request.files['file']
         file_name = "video_{}.mp4".format(number()) 
-         
+        print("口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口")
+        print (data)
+        print (file_name)
         try:
-            data.save("/tmp/{}".format(file_name))
+            data.save("tmp\\{}".format(file_name))
         except:
             return jsonify({"message":"Some Errors Occured During Writting Video Object"}), headers
         
-        upload_blob("ieat-video", "/tmp/{}".format(file_name), file_name)    
+        upload_blob("ieat-video", "tmp\\{}".format(file_name), file_name)    
         make_blob_public("ieat-video", file_name)
+        os.remove("tmp\\{}".format(file_name))
+        print("口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口口")
         return jsonify({"message":"Upload Completed!", "video_link":"https://storage.googleapis.com/ieat-video/{}".format(file_name)}), headers
     else:
         return jsonify({"message":"POST Request Required"}), headers
@@ -1011,12 +1023,12 @@ def video_link():
 # Total sub
 #-----------------------------------------#
 @app.route('/Total_sub', methods = ['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def Total_sub(custom_id):
     if request.method == 'POST':
         data = request.json
         if data['type'] == 'Totalsub':
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 cursor = cnx.execute("SELECT follower, friend_in_7, msg_in_7, touch_in_7, unfriend_in_7 FROM summary where custom_id = \'{}\';".format(custom_id))
                 query = cursor.fetchall()
 
@@ -1045,7 +1057,7 @@ def Total_sub(custom_id):
 # Barchart
 #-----------------------------------------#
 @app.route('/barchart', methods = ['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def barchart(custom_id):
     if request.method == 'POST':
         data = request.json
@@ -1057,7 +1069,7 @@ def barchart(custom_id):
             elif data['date_type'] == '自訂':
                 condition = "WHERE custom_id = \'{}\' and cur_date BETWEEN '{}' AND '{}'".format(custom_id, data['date_range'][0], data['date_range'][1])
             
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 cursor = cnx.execute("SELECT cur_date, auto_reply, push, multicast, broadcast, narrowcast, touch_today, new_sub, de_sub, link FROM summary {};".format(condition))
                 query = cursor.fetchall()
 
@@ -1090,9 +1102,9 @@ def barchart(custom_id):
 # Demographics
 #-----------------------------------------#
 @app.route('/demographic', methods = ['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def demographic(custom_id):
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         Channel_Access_Token = cnx.execute("select msg_token from bot_info where custom_id = \'{}\';".format(custom_id)).fetchall()[0][0]
     
     get_headers = {
@@ -1135,7 +1147,7 @@ def demographic(custom_id):
 # Filter page
 #-----------------------------------------#
 @app.route("/filter", methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def filter(custom_id):
     if request.method == 'POST':
         data = request.json
@@ -1144,39 +1156,39 @@ def filter(custom_id):
             mdf = data['data_fixed']
             if mdf['userid'] != '':
                 if mdf['name'] != '':
-                    with engine.connect() as cnx:
+                    with connection.cursor() as cnx:
                         cnx.execute("UPDATE member_list SET displayname = '{}' where user_id = '{}' and custom_id = \'{}\';".format(mdf['name'], mdf['userid'], custom_id))
                 if mdf['address'] != '':
-                    with engine.connect() as cnx:
+                    with connection.cursor() as cnx:
                         cnx.execute("UPDATE member_list SET address = '{}' where user_id = '{}' and custom_id = \'{}\';".format(mdf['address'], mdf['userid'], custom_id))
                 if mdf['phone'] != '':
-                    with engine.connect() as cnx:
+                    with connection.cursor() as cnx:
                         cnx.execute("UPDATE member_list SET phone = '{}' where user_id = '{}' and custom_id = \'{}\';".format(mdf['phone'], mdf['userid'], custom_id))
                 if mdf['email'] != '':
-                    with engine.connect() as cnx:
+                    with connection.cursor() as cnx:
                         cnx.execute("UPDATE member_list SET e_mail = '{}' where user_id = '{}' and custom_id = \'{}\';".format(mdf['email'], mdf['userid'], custom_id))
 
             # collect all the labels from DB query  
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 query = cnx.execute("SELECT label_id, label_name from tag_list where custom_id = \'{}\';".format(custom_id)).fetchall()
                 tags = [{'value': x[0], 'label': x[1]} for x in query]
                 total_labels = [x[0] for x in query]
                 dict_labels = {x[0] : x[1] for x in query}
             
             # label summary
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 query = cnx.execute("SELECT user_id FROM member_list WHERE user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(custom_id)).fetchall()
                 userList = {x[0] for x in query} 
                 LabelSummary = {x[0] : [] for x in query} 
 
             for label in total_labels:
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     list_user = [x[0] for x in cnx.execute("SELECT user_id FROM label_record where label_id = \'{}\' and custom_id = \'{}\';".format(label, custom_id)).fetchall()]
                 for user in list_user:
                     try:
                         LabelSummary[user] = LabelSummary[user] + [dict_labels[label]]
                     except:
-                        with engine.connect() as cnx:
+                        with connection.cursor() as cnx:
                             cnx.execute("INSERT INTO error_log (log_msg, custom_id) VALUES (\'{}\', \'{}\');".format(user, custom_id))
                         continue
 
@@ -1184,7 +1196,7 @@ def filter(custom_id):
             cond_gender = list({x['male'] for x in data['gender']})
             list_Gender = list()
             for gender in cond_gender:
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     tmp = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE gender = \'{}\' and user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(gender, custom_id)).fetchall()}
                     list_Gender.append(tmp)
             
@@ -1201,13 +1213,13 @@ def filter(custom_id):
         
             list_InLabel = list()
             for label in in_label:
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     tmp = {x[0] for x in cnx.execute("SELECT user_id FROM label_record WHERE label_id = \'{}\' and custom_id = \'{}\';".format(label, custom_id)).fetchall()}
                     list_InLabel.append(tmp)
             
             list_ExLabel = list()
             for label in ex_label:
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     tmp = userList - {x[0] for x in cnx.execute("SELECT user_id FROM label_record WHERE label_id = \'{}\' and custom_id = \'{}\';".format(label, custom_id)).fetchall()}
                     list_ExLabel.append(tmp)
 
@@ -1227,7 +1239,7 @@ def filter(custom_id):
                     userid_all = set()
               
             # 時間條件
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 if data['radio_time'] == '不限時間':
                     pass
                 else:
@@ -1238,7 +1250,7 @@ def filter(custom_id):
                     userid_all = userid_time & userid_all
             
             # 篩選條件
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 if data['search_input'] != '':
                     if data['select_keyword'] == 'name':
                         userid_filter = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE custom_id = \'{}\' and (displayname like '{}%%' or displayname like '%%{}' or displayname like '%%{}%%');".format(custom_id, data['search_input'], data['search_input'], data['search_input']))}
@@ -1261,7 +1273,7 @@ def filter(custom_id):
                 total = len(userid_all)
                 #
                 cond_userid = str(userid_all).replace("{", "(").replace("}", ")")
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     query = cnx.execute('SELECT displayname, gender, user_id, jointime, picture, e_mail, phone, address, username from member_list where user_id in {} and custom_id = \'{}\' limit {}, {};'.format(cond_userid, custom_id, str(lim_1), str(limit))).fetchall()
             else:
                 total = 0
@@ -1302,7 +1314,7 @@ def filter(custom_id):
 @app.route("/auto_summary", methods=['get'])
 def auto_summary():
     # front page information    
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         query = cnx.execute('SELECT DATE_SUB(CURDATE(), interval 1 day);').fetchall()[0][0]
         year = str(query.year)
         #yesterday
@@ -1335,11 +1347,11 @@ def auto_summary():
         cond_today = year+'-'+month+'-'+day+'%%'
         date_today = datetime.date(int(year), int(month), int(day))
 
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         CustomIDList = [x[0] for x in cnx.execute("SELECT custom_id from user_list;").fetchall()]
     
     for custom_id in CustomIDList:
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             Channel_Access_Token = cnx.execute("select msg_token from bot_info where custom_id = \'{}\';".format(custom_id)).fetchall()[0][0]
         
         get_headers = {
@@ -1361,7 +1373,7 @@ def auto_summary():
         for key in json_req.keys():
             apiResult[key] = json_req[key]
         
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             num_follower = cnx.execute('select count(*) from member_list where user_id not in (select user_id from unfriend_list) and custom_id = \'{}\';'.format(custom_id)).fetchall()[0][0]
             num_friend = cnx.execute('select count(*) from member_list where jointime >= date_sub(curdate(), interval 7 day) and custom_id = \'{}\';'.format(custom_id)).fetchall()[0][0]
             num_unfriend = cnx.execute('select count(*) from unfriend_list where event_time >= date_sub(curdate(), interval 7 day) and custom_id = \'{}\';'.format(custom_id)).fetchall()[0][0]
@@ -1375,7 +1387,7 @@ def auto_summary():
         if num_msg == None:
             num_msg = 0
 
-        with engine.connect() as cnx:        
+        with connection.cursor() as cnx:        
             # renew summary table
             cnx.execute("set sql_safe_updates = 0;")
             cnx.execute("delete from summary where cur_date = \'{}\' and custom_id = \'{}\';".format(str(date_today), custom_id))
@@ -1389,17 +1401,17 @@ def auto_summary():
 #-----------------------------------------#
 @app.route('/renew_label_record')
 def renew_label_record():
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         CustomIDList = [x[0] for x in cnx.execute("SELECT custom_id from user_list;").fetchall()]
     
     for custom_id in CustomIDList:
         # renew label record
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             # 選取非永久之標籤
             query = cnx.execute("SELECT label_id, label_period FROM tag_list WHERE label_period != 0 and custom_id = \'{}\';".format(custom_id)).fetchall()
             now = str(cnx.execute("select NOW();").fetchall()[0][0])
             # 將非永久之標籤，如果非在有效期限內，標籤紀錄歸零
-        with engine.connect() as cnx:    
+        with connection.cursor() as cnx:    
             cnx.execute("SET SQL_SAFE_UPDATES = 0;")
             for x in query:
                 date = str(cnx.execute("select date_sub(\'{}\', interval {} day);".format(now, x[1])).fetchall()[0][0])
@@ -1410,18 +1422,18 @@ def renew_label_record():
 #-----------------------------------------#
 @app.route('/run_task')
 def run_task():
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         CustomIDList = [x[0] for x in cnx.execute("SELECT custom_id from user_list;").fetchall()]
     
     for custom_id in CustomIDList:
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             do_list = cnx.execute("select task_id, include, exclude, D_union from audience where timing <= NOW() and custom_id = \'{}\';".format(custom_id)).fetchall()
             body_list = [{"task_id":x[0], "include":json.loads(x[1]), "exclude":json.loads(x[2]), "union":x[3]} for x in do_list]
 
         # create audience
         for data in body_list:     
             # Total User_ID
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 userList = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(custom_id)).fetchall()} 
 
             # gender
@@ -1430,13 +1442,13 @@ def run_task():
 
             list_InGender = list()
             for gender in in_gender:
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     tmp = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE gender = \'{}\' and user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(gender, custom_id)).fetchall()}
                     list_InGender.append(tmp)
             
             list_ExGender = list()
             for gender in ex_gender:
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     tmp = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE gender != \'{}\' and user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(gender, custom_id)).fetchall()}
                     list_ExGender.append(tmp)
 
@@ -1446,13 +1458,13 @@ def run_task():
 
             list_InLabel = list()
             for label in in_label:
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     tmp = {x[0] for x in cnx.execute("SELECT user_id FROM label_record WHERE label_id = \'{}\' and custom_id = \'{}\';".format(label, custom_id)).fetchall()}
                     list_InLabel.append(tmp)
             
             list_ExLabel = list()
             for label in ex_label:
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     tmp = userList - {x[0] for x in cnx.execute("SELECT user_id FROM label_record WHERE label_id = \'{}\' and custom_id = \'{}\';".format(label, custom_id)).fetchall()}
                     list_ExLabel.append(tmp)
 
@@ -1473,13 +1485,13 @@ def run_task():
             
             userid_all = list(userid_all)
             #
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 num_aud = len(userid_all)
                 cnx.execute("SET sql_safe_updates = 0;")
                 cnx.execute("UPDATE scheduled_msg SET num_aud = {} WHERE task_id = \'{}\' and custom_id = \'{}\';".format(str(num_aud), data['task_id'], custom_id))
                 
             if userid_all != []:
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     Channel_Access_Token = cnx.execute("select msg_token from bot_info where custom_id = \'{}\';".format(custom_id)).fetchall()[0][0]
                 url_addaud = 'https://api.line.me/v2/bot/audienceGroup/upload'
 
@@ -1509,21 +1521,21 @@ def run_task():
                         # return jsonify({"message":"error", "log":log_msg}), headers
                     page += 1    
                 json_AUdIdList = str(list_AudId).replace("\'",'\"')
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     cnx.execute("SET sql_safe_updates = 0;")
                     cnx.execute("UPDATE scheduled_msg SET aud_id = \'{}\' WHERE task_id = \'{}\' and custom_id = \'{}\';".format(json_AUdIdList, data['task_id'], custom_id))
                     cnx.execute("DELETE FROM audience WHERE task_id = \'{}\' and custom_id = \'{}\';".format(data['task_id'], custom_id))
                         
 
         # push message to target audience_id
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute("set sql_safe_updates = 0;")
             do_list = cnx.execute("SELECT task_id, msg_id, aud_id, msg_name, object, D_union, num_aud from scheduled_msg WHERE timing <= NOW() and custom_id = \'{}\';".format(custom_id)).fetchall()
             body_list = [{"task_id":x[0], "msg_id":x[1], "aud_id":json.loads(x[2]), "msg_name":x[3], "object":json.loads(x[4]), "union":x[5], "num_aud":x[6]} for x in do_list]
         
         for data in body_list:
             # push narrowcast msg
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 Channel_Access_Token = cnx.execute("select msg_token from bot_info where custom_id = \'{}\';".format(custom_id)).fetchall()[0][0]
                 query = cnx.execute("SELECT content, action_list, postback_list FROM msg_list WHERE msg_id = \'{}\' and custom_id = \'{}\';".format(data['msg_id'], custom_id)).fetchall()[0]
                 content = query[0]
@@ -1550,7 +1562,7 @@ def run_task():
             json_object = str(data['object']).replace("\'",'\"')
             if req_narrow.status_code == 202:
                 log_msg = "message sent"
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     cnx.execute("set sql_safe_updates = 0")
                     cnx.execute("update push_history set action_list = '[]' where action_list like \'{}\' and custom_id = \'{}\';".format(json_action, custom_id)) # 停止計算舊的
                     cnx.execute("update push_history set postback_list = '[]' where postback_list like \'{}\' and custom_id = \'{}\';".format(json_postback, custom_id))
@@ -1560,7 +1572,7 @@ def run_task():
                 # return jsonify({"message": "request completed!"}), headers
             else:
                 log_msg = json.loads(req_narrow.text)['message']
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     cnx.execute("INSERT INTO error_log (log_msg, custom_id) VALUES (\'{}\', \'{}\');".format(log_msg, custom_id))
                 # return jsonify({"message":"error", "log":log_msg}), headers
 
@@ -1576,7 +1588,7 @@ def login():
     if request.method == 'POST':
         data = request.json
 
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             query = cnx.execute("SELECT custom_id, pw FROM user_list WHERE id = \'{}\'".format(data['loginForm']['username'])).fetchall()
             if not query:
                 return jsonify({"message" : "username not found!"}), headers
@@ -1595,11 +1607,11 @@ def login():
 # token data
 #-----------------------------------------#
 @app.route('/token_data', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def token_data(custom_id):
     if request.method == 'POST':
         try:
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 cursor = cnx.execute("SELECT display_name, roles, avatar FROM user_list WHERE custom_id = \'{}\';".format(custom_id))
                 query = cursor.fetchall()[0]
                 userList = {"name" : query[0], "roles" : [query[1]], "avatar" : query[2]}
@@ -1617,7 +1629,7 @@ def create_user():
         data = request.json
         password = generate_password_hash(data['password'], method = 'sha256')
 
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute("INSERT INTO user_list (custom_id, id, pw, display_name, roles, avatar) VALUES (\'{}\', \'{}\', \'{}\', \'{}\', \'{}\', \'{}\');"\
                 .format(data['custom_id'], data['username'], password, data['display_name'], data['roles'], data['avatar']))
 
@@ -1632,7 +1644,7 @@ def create_user():
 # Create Task
 #-----------------------------------------#
 @app.route('/create_task', methods = ['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def create_task(custom_id):
     if request.method == 'POST':
         data = request.json
@@ -1653,7 +1665,7 @@ def create_task(custom_id):
         ex_label = data['exclude']['label_id']
         #
         task_id = "task_{}".format(number())
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             #label recording
             dict_label = dict(cnx.execute("SELECT label_id, label_name from tag_list where custom_id = \'{}\';".format(custom_id)).fetchall())
             
@@ -1680,11 +1692,11 @@ def create_task(custom_id):
 # Query Task
 #-----------------------------------------#
 @app.route('/query_task', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def query_task(custom_id): 
     if request.method == 'POST':
         data = request.json
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             query = cnx.execute("SELECT msg_name, object, timing, state, task_id, D_union FROM scheduled_msg where custom_id = \'{}\';".format(custom_id)).fetchall()
 
         result = [{"msg_name": x[0], "object":json.loads(x[1]), "timing":str(x[2]), "state":x[3], "task_id":x[4], "D_union":x[5]} for x in query]
@@ -1701,11 +1713,11 @@ def query_task(custom_id):
 # delete Task
 #-----------------------------------------#
 @app.route('/delete_task', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def delete_task(custom_id): 
     if request.method == 'POST':
         data = request.json
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute('delete from scheduled_msg where task_id = \'{}\' and custom_id = \'{}\';'.format(data['task_id'], custom_id))
             cnx.execute('delete from audience where task_id = \'{}\' and custom_id = \'{}\';'.format(data['task_id'], custom_id))
         return jsonify({"message":"task deleted!"}), headers
@@ -1716,9 +1728,9 @@ def delete_task(custom_id):
 # create welcome message
 #-----------------------------------------#
 @app.route('/set_welcome', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def set_welcome(custom_id):
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         cnx.execute("set sql_safe_updates = 0;")
         cnx.execute("delete from scheduled_msg where task_id like \'day%%\' and custom_id = \'{}\';".format(custom_id))
     if request.method == "POST":
@@ -1726,17 +1738,17 @@ def set_welcome(custom_id):
         for day in range(1, 8):
             json_object = str({"list_yes" : ["加入第{}天會員".format(day)], "list_no" : []}).replace("\'",'\"')
             if data['welcome_msg_active' + str(day)] == "1":
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     query = cnx.execute("select * from welcome_msg_list where days = {} and custom_id = \'{}\';".format(day, custom_id)).fetchall()
                 if len(query) == 0:
-                    with engine.connect() as cnx:
+                    with connection.cursor() as cnx:
                         cnx.execute("insert into welcome_msg_list (custom_id, days, msg_id, active, timing, object) values (\'{}\', {}, \'{}\', 1, \'{}\', \'{}\')".format(custom_id, day, data['welcome_msg_day' + str(day)], data["timing"], json_object))
                 else:
-                    with engine.connect() as cnx:
+                    with connection.cursor() as cnx:
                         cnx.execute("set sql_safe_updates = 0;")
                         cnx.execute("update welcome_msg_list set active = 1, msg_id = \'{}\' , timing = \'{}\', object = \'{}\' where custom_id = \'{}\' and days = {};".format(data['welcome_msg_day' + str(day)], data["timing"], json_object, custom_id, day))
             else:
-                with engine.connect() as cnx:
+                with connection.cursor() as cnx:
                     cnx.execute("update welcome_msg_list set active = 0 where custom_id = \'{}\' and days = {};".format(custom_id, day))
         return jsonify({"message":"success"}), headers
     else:
@@ -1746,12 +1758,12 @@ def set_welcome(custom_id):
 # query welcome message
 #-----------------------------------------#
 @app.route('/query_welcome', methods=['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def query_welcome(custom_id):
     if request.method == 'POST':
         result = dict()
         for day in range(1, 8):
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 query = cnx.execute("select msg_id, active from welcome_msg_list where custom_id = \'{}\' and days = {};".format(custom_id, day)).fetchall()
                 time = cnx.execute("select timing from welcome_msg_list where active = 1 and custom_id = \'{}\';".format(custom_id)).fetchall()
             # 時間
@@ -1786,16 +1798,16 @@ def query_welcome(custom_id):
 #-----------------------------------------#
 @app.route('/create_welcome_task', methods = ['GET', 'POST', 'OPTIONS'])
 def create_welcome_task():
-    with engine.connect() as cnx:
+    with connection.cursor() as cnx:
         CustomIDList = [x[0] for x in cnx.execute("SELECT custom_id from user_list;").fetchall()]
     
     for custom_id in CustomIDList:
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             query = cnx.execute("select days, msg_id from welcome_msg_list where active = 1 and custom_id = \'{}\';".format(custom_id)).fetchall()
         if len(query) == 0:
             continue
         else:
-            with engine.connect() as cnx:
+            with connection.cursor() as cnx:
                 time_set = cnx.execute("select timing from welcome_msg_list where active = 1 and custom_id = \'{}\';".format(custom_id)).fetchall()[0][0].split(":")
                 today = cnx.execute("select curdate();").fetchall()[0][0]
                 cond_hour = int(time_set[0])
@@ -1810,7 +1822,7 @@ def create_welcome_task():
                     task_id = "day{}".format(task[0])
                     msg_id = task[1]
                     # msg_name
-                    with engine.connect() as cnx:
+                    with connection.cursor() as cnx:
                         msg_name = cnx.execute("select msg_name from msg_list where custom_id = \'{}\' and msg_id = \'{}\';".format(custom_id, task[1])).fetchall()[0][0]
                     # object
                     json_object = str({"list_yes" : ["加入第{}天會員".format(task[0])], "list_no" : []}).replace("\'",'\"')
@@ -1821,14 +1833,14 @@ def create_welcome_task():
                     timing = str(datetime.datetime(today.year, today.month, today.day, cond_hour, cond_minute, 0))
                     
                     # Total User_ID
-                    with engine.connect() as cnx:
+                    with connection.cursor() as cnx:
                         userList = {x[0] for x in cnx.execute("SELECT user_id FROM member_list WHERE user_id not in (SELECT user_id FROM unfriend_list) and custom_id = \'{}\';".format(custom_id)).fetchall()} 
                         targetID = {x[0] for x in cnx.execute("select user_id from member_list where jointime like \'{}%%\' and custom_id = \'{}\';".format(timing_cond, custom_id)).fetchall()}
                         userid_all = list(userList & targetID)
                     
                     # create audiences
                     if userid_all != []:
-                        with engine.connect() as cnx:
+                        with connection.cursor() as cnx:
                             Channel_Access_Token = cnx.execute("select msg_token from bot_info where custom_id = \'{}\';".format(custom_id)).fetchall()[0][0]
                         url_addaud = 'https://api.line.me/v2/bot/audienceGroup/upload'
 
@@ -1854,14 +1866,14 @@ def create_welcome_task():
                                 list_AudId.append(aud_id)
                             else:
                                 log_msg = json.loads(req_addaud.text)['message']
-                                with engine.connect() as cnx:    
+                                with connection.cursor() as cnx:    
                                     cnx.execute("INSERT INTO error_log (log_msg, custom_id) VALUES (\'{}\', \'{}\');".format(log_msg, custom_id))
                                 # return jsonify({"message":"error", "log":log_msg}), headers
                             page += 1    
                         
                         json_AudIdList = str(list_AudId).replace("\'",'\"')
                         # create task
-                        with engine.connect() as cnx:
+                        with connection.cursor() as cnx:
                             cnx.execute("INSERT INTO scheduled_msg (task_id, msg_id, msg_name, object, D_union, timing, aud_id, num_aud, custom_id) VALUES (\'{}\', \'{}\', \'{}\', \'{}\', \'{}\', \'{}\', \'{}\', {}, \'{}\');"\
                                 .format(task_id, msg_id, msg_name, json_object, D_union, timing, json_AudIdList, len(userid_all), custom_id))
                     else:
@@ -1874,13 +1886,13 @@ def create_welcome_task():
 # user info
 #-----------------------------------------#
 @app.route('/user_info', methods = ['GET', 'POST', 'OPTIONS'])
-@token_required
+#@token_required
 def user_info(custom_id):
     if request.method == 'POST':
         data = request.json
         user_id = data['user_id']
 
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             query = cnx.execute('SELECT user_id, displayname, username, gender, birth, picture, e_mail, phone, address, jointime, event_time, D_member \
                 from member_list where user_id = \'{}\' and custom_id = \'{}\';'.format(user_id, custom_id)).fetchall()[0]
 
@@ -1910,14 +1922,14 @@ def reset():
         data = request.json
         userid = data['user_id']
         empty = ""
-        with engine.connect() as cnx:
+        with connection.cursor() as cnx:
             cnx.execute("set sql_safe_updates = 0;")    
             cnx.execute('update member_list set username = \'{}\', gender = \'{}\', e_mail = \'{}\', address = \'{}\', birth = \'{}\', phone = \'{}\', D_member = 0 where user_id = \'{}\' and custom_id = "cust_ieat";'.format(empty, empty, empty, empty, "20020314", empty, userid))
         return jsonify({"message" : "info reseted"}), headers
     else:
         return jsonify ({"message":"plz use post request"}), headers
         
-engine.dispose()
+# engine.dispose()
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
