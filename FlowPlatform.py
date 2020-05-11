@@ -1926,7 +1926,32 @@ def reset():
         return jsonify({"message" : "info reseted"}), headers
     else:
         return jsonify ({"message":"plz use post request"}), headers
-        
+#-----------------------------------------#
+# FaceLanding link
+#-----------------------------------------#
+@app.route("/get_code", methods=['GET', 'POST', 'OPTIONS'])
+def get_code():
+    if request.method == 'POST':
+        data = request.json
+        code = random.randint(100000, 999999)
+        token = jwt.encode({'phone' : "0931968899", 'exp' : datetime.datetime.utcnow()}, app.config['SECRET_KEY']).decode("utf8")
+        phone = str(data['phone'])
+        # send msg
+        body = {
+            "username" : "fatsheepgod",
+            "password" : "fatsheepgod",
+            "dstaddr" : phone,
+            "smbody" : "親愛的貴賓您好，您的會員認證碼為[{}]。".format(code)
+        }
+        hash_url = urllib.parse.urlencode(body, encoding="big5")
+        url = 'https://api.kotsms.com.tw/kotsmsapi-1.php?{}'.format(hash_url)
+        req = requests.post(url)
+        # saving info
+        with engine.connect() as cnx:
+            cnx.execute("insert into FL_verify (phone, code, token, log) values (\'{}\', \'{}\', \'{}\', \'{}\');".format(phone, code, token, req.text))
+        return jsonify({"token" : token}), headers
+    else:
+        return jsonify({"message":"OK"})
 engine.dispose()
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5001))
