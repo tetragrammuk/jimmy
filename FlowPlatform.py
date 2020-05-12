@@ -23,8 +23,8 @@ engine_url = sqlalchemy.engine.url.URL(
     drivername='mysql+pymysql',
     username='root',
     password='fatsheepgod',
-    # host='34.80.112.57',
-    host='localhost',
+    host='34.80.112.57',
+    # host='localhost',
     port=3306,
     database='test'
 )
