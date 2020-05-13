@@ -53,6 +53,7 @@ def number():
         cnx.execute("INSERT INTO dummy () VALUES ();")
         cursor = cnx.execute("SELECT num FROM dummy ORDER BY num DESC LIMIT 1;")
         num = str(cursor.fetchall()[0][0])
+    engine.dispose()
     return num
 
 def token_required(func):
@@ -1950,13 +1951,15 @@ def get_code():
         # saving info
         with engine.connect() as cnx:
             cnx.execute("insert into FL_verify (phone, code, token, log) values (\'{}\', \'{}\', \'{}\', \'{}\');".format(phone, code, token, req.text))
+        engine.dispose()
         return jsonify({"token" : token}), headers
     else:
+        engine.dispose()
         return jsonify({"message":"OK"})
 
 @app.route("/test41")
 def test41():
-    return "Hello World41!"      
+    return "Hello World41!"   
         
 engine.dispose()
 if __name__ == "__main__":
