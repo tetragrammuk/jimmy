@@ -28,7 +28,7 @@ engine_url = sqlalchemy.engine.url.URL(
     port=3306,
     database='test'
 )
-engine = sqlalchemy.create_engine(engine_url, pool_size=3)
+engine = sqlalchemy.create_engine(engine_url, pool_size=0)
 
 # -- function definition --
 def page_list(data, page, limit):
